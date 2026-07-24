@@ -74,7 +74,6 @@ const columnAliases = {
     "objectname",
     "name",
   ],
-  manufacturer: ["manufacturer", "mfr", "make", "manufacturername"],
   mpn: [
     "mpn",
     "manufacturerpartnumber",
@@ -385,12 +384,11 @@ function rowsToLines(rows) {
     ziplinePn: 0,
     lineNumber: 1,
     description: 2,
-    manufacturer: 3,
-    mpn: 4,
-    alternatives: 5,
-    bomQty: 6,
-    partType: 7,
-    procurementIntent: 8,
+    mpn: 3,
+    alternatives: 4,
+    bomQty: 5,
+    partType: 6,
+    procurementIntent: 7,
   };
 
   return dataRows
@@ -412,7 +410,6 @@ function rowsToLines(rows) {
         ziplinePn: get("ziplinePn"),
         lineNumber: get("lineNumber") || String(index + 1),
         description: get("description"),
-        manufacturer: get("manufacturer"),
         mpn: get("mpn"),
         alternatives: splitAlternatives(get("alternatives")),
         bomQty: get("bomQty") || "1",
@@ -564,90 +561,6 @@ function makeId() {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function hashString(value) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-  }
-  return Math.abs(hash >>> 0);
-}
-
-function buildPreviewReport(lines, settings) {
-  const sellers = ["Digi-Key", "Mouser", "Arrow Electronics", "Avnet"];
-  const allowed = settings.allowedSuppliers.length
-    ? sellers.filter((seller) =>
-        settings.allowedSuppliers.some(
-          (allowedSeller) => allowedSeller.toLowerCase() === seller.toLowerCase(),
-        ),
-      )
-    : sellers;
-  const supplierList = allowed.length ? allowed : sellers;
-
-  const reportLines = lines.map((line, index) => {
-    const bomQty = Math.max(0, numberFrom(line.bomQty, 0));
-    const demand = Math.max(0, numberFrom(settings.defaultDemand, 0));
-    const bufferPct = Math.max(0, numberFrom(settings.bufferPct, 10));
-    const requiredQty = Math.ceil((bomQty * demand * (100 + bufferPct)) / 100 - 1e-9);
-    const hash = hashString(`${line.mpn}-${index}`);
-    const supplier = supplierList[hash % supplierList.length];
-    const priceBreakQty = requiredQty >= 5000 ? 5000 : requiredQty >= 1000 ? 1000 : 100;
-    const unitPrice = Number((0.08 + (hash % 3200) / 1000).toFixed(4));
-    const inventoryLevel = requiredQty + 150 + (hash % 2500);
-    const marketAvailability = inventoryLevel + 1000 + (hash % 5000);
-    const currency = settings.currency || "USD";
-
-    return {
-      id: line.id || `line-${index + 1}`,
-      ziplinePn: line.ziplinePn || "",
-      lineNumber: line.lineNumber || String(index + 1),
-      description: line.description || "",
-      requestedManufacturer: line.manufacturer || "",
-      primaryMpn: line.mpn || "",
-      candidateMpns: [line.mpn, ...(line.alternatives || [])].filter(Boolean),
-      partType: line.partType || "",
-      procurementIntent: line.procurementIntent || "",
-      requiredQty,
-      status: !requiredQty ? "Check quantity" : line.mpn ? "Quoted" : "Missing MPN",
-      recommendation: requiredQty && line.mpn
-        ? {
-            quotedMpn: line.mpn,
-            manufacturer: line.manufacturer || "",
-            supplier,
-            sourceRole: "Primary",
-            unitPrice,
-            currency,
-            priceBreakQty,
-            totalCost: unitPrice * requiredQty,
-            inventoryLevel,
-            marketAvailability,
-            leadDays: 7 + (hash % 42),
-            url: `https://octopart.com/search?q=${encodeURIComponent(line.mpn)}`,
-          }
-        : null,
-      similarParts: (line.alternatives || []).slice(0, 3),
-    };
-  });
-
-  const quotedLines = reportLines.filter((line) => line.recommendation);
-  return {
-    generatedAt: new Date().toISOString(),
-    source: "demo",
-    summary: {
-      lineCount: reportLines.length,
-      quotedLines: quotedLines.length,
-      unresolvedLines: reportLines.length - quotedLines.length,
-      stockRisks: 0,
-      totalCost: quotedLines.reduce(
-        (sum, line) => sum + Number(line.recommendation?.totalCost || 0),
-        0,
-      ),
-      currency: settings.currency || "USD",
-    },
-    lines: reportLines,
-  };
-}
-
 function getSettings() {
   return {
     defaultDemand: elements.defaultDemand.value,
@@ -705,7 +618,6 @@ function addEmptyLine() {
     ziplinePn: "",
     lineNumber: String(state.lines.length + 1),
     description: "",
-    manufacturer: "",
     mpn: "",
     alternatives: [],
     bomQty: "1",
@@ -752,7 +664,7 @@ function renderBom() {
   if (!state.lines.length) {
     elements.bomBody.innerHTML = `
       <tr class="empty-row">
-        <td colspan="9">No BOM lines.</td>
+        <td colspan="8">No BOM lines.</td>
       </tr>
     `;
     return;
@@ -761,7 +673,7 @@ function renderBom() {
   if (!visibleLines.length) {
     elements.bomBody.innerHTML = `
       <tr class="empty-row">
-        <td colspan="9">No BOM lines match the current filters.</td>
+        <td colspan="8">No BOM lines match the current filters.</td>
       </tr>
     `;
     return;
@@ -776,9 +688,6 @@ function renderBom() {
           </td>
           <td>
             <input data-field="description" value="${escapeHtml(line.description)}" />
-          </td>
-          <td>
-            <input data-field="manufacturer" value="${escapeHtml(line.manufacturer)}" />
           </td>
           <td>
             <input data-field="mpn" value="${escapeHtml(line.mpn)}" />
@@ -829,8 +738,7 @@ function renderReport(report) {
 
   renderSummary(report.summary);
 
-  elements.reportMeta.textContent =
-    report.source === "nexar" ? "Nexar/Octopart live data" : "Demo data";
+  elements.reportMeta.textContent = "Nexar/Octopart live data";
 
   elements.reportBody.innerHTML = report.lines
     .map((line) => {
@@ -863,16 +771,27 @@ function renderReport(report) {
               runner.currency || rec.currency || report.summary.currency,
             )})`
           : "";
+      const inputText =
+        rec?.inputMpn &&
+        rec?.quotedMpn &&
+        normalizedText(rec.inputMpn) !== normalizedText(rec.quotedMpn)
+          ? `Input: ${rec.inputMpn}`
+          : "";
+      const matchedManufacturer = rec?.manufacturer
+        ? `Matched manufacturer: ${rec.manufacturer}`
+        : "";
+      const orderText = rec?.minimumOrderQty > 1 ? `MOQ ${rec.minimumOrderQty}` : "";
+      const skuText = rec?.supplierSku ? `Seller SKU: ${rec.supplierSku}` : "";
       const partSubtext = [
         line.description,
-        line.requestedManufacturer,
         line.partType,
         line.procurementIntent,
         rec?.sourceRole,
-        rec?.manufacturer && rec.manufacturer !== line.requestedManufacturer
-          ? rec.manufacturer
-          : "",
-        line.similarParts.length ? `Similar: ${line.similarParts.join(", ")}` : "",
+        inputText,
+        matchedManufacturer,
+        orderText,
+        skuText,
+        (line.similarParts || []).length ? `Similar: ${line.similarParts.join(", ")}` : "",
       ]
         .filter(Boolean)
         .join(" | ");
@@ -930,20 +849,23 @@ function quoteCsv(report) {
       "Line",
       "Zipline PN",
       "Description",
-      "Manufacturer",
       "Primary MPN",
       "Candidates",
       "Part Type",
       "Procurement Intent",
       "Required Qty",
       "Recommended MPN",
+      "Matched Manufacturer",
       "Supplier",
+      "Supplier SKU",
       "Next Best Supplier",
       "Next Best Total",
       "Next Best Delta",
       "Unit Price",
       "Currency",
       "Price Break",
+      "MOQ",
+      "Quoted Qty",
       "Extended Cost",
       "Inventory",
       "Market Availability",
@@ -963,20 +885,23 @@ function quoteCsv(report) {
         line.lineNumber,
         line.ziplinePn,
         line.description,
-        line.requestedManufacturer || "",
         line.primaryMpn,
         line.candidateMpns.join("; "),
         line.partType || "",
         line.procurementIntent || "",
         line.requiredQty,
         rec.quotedMpn || "",
+        rec.manufacturer || "",
         rec.supplier || "",
+        rec.supplierSku || "",
         runner.supplier || "",
         runner.totalCost ?? "",
         runnerDelta,
         rec.unitPrice ?? "",
         rec.currency || report.summary.currency,
         rec.priceBreakQty ?? "",
+        rec.minimumOrderQty ?? "",
+        rec.quotedQty ?? "",
         rec.totalCost ?? "",
         rec.inventoryLevel ?? "",
         rec.marketAvailability ?? "",
@@ -1081,8 +1006,10 @@ async function generateReport() {
 
   try {
     if (isFilePreview) {
-      renderReport(buildPreviewReport(validLines, getSettings()));
-      setStatus("Report generated with preview pricing.");
+      setStatus(
+        "Open the local server version of the app to generate live Nexar/Octopart data.",
+        "error",
+      );
       return;
     }
 
@@ -1099,11 +1026,7 @@ async function generateReport() {
     if (!response.ok) throw new Error(payload.error || "Quote request failed.");
 
     renderReport(payload);
-    setStatus(
-      payload.source === "nexar"
-        ? "Report generated with live Octopart data."
-        : "Report generated with demo pricing.",
-    );
+    setStatus("Report generated with live Octopart data.");
   } catch (error) {
     setStatus(error.message || "Unable to generate report.", "error");
   } finally {
@@ -1127,7 +1050,7 @@ async function checkHealth() {
     const health = await response.json();
     elements.apiMode.textContent = health.nexarConfigured
       ? "Live Nexar/Octopart API"
-      : "Demo pricing mode";
+      : "Nexar API not configured";
   } catch {
     elements.apiMode.textContent = "Server unavailable";
   }

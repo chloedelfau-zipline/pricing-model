@@ -95,6 +95,14 @@ function numberFrom(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function optionalNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return null;
+  }
+  const parsed = Number(String(value).replace(/,/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function gqlString(value) {
   return JSON.stringify(String(value ?? ""));
 }
@@ -111,6 +119,18 @@ function uniqueStrings(values) {
     }
   }
   return output;
+}
+
+function searchKindForPartNumber(value) {
+  const text = String(value || "").trim();
+  if (/-ND$/i.test(text)) return "sku";
+  return "mpn";
+}
+
+function buildPartQuery(value, settings) {
+  const searchKind = searchKindForPartNumber(value);
+  const limit = searchKind === "sku" ? 1 : Number(settings.matchLimit || 1);
+  return `{ ${searchKind}: ${gqlString(value)}, limit: ${limit} }`;
 }
 
 async function readJsonBody(req) {
@@ -179,7 +199,7 @@ async function getNexarToken() {
 
 function buildNexarQuery(mpns, settings) {
   const queryList = mpns
-    .map((mpn) => `{ mpn: ${gqlString(mpn)}, limit: ${Number(settings.matchLimit || 3)} }`)
+    .map((mpn) => buildPartQuery(mpn, settings))
     .join(", ");
 
   const args = [`queries: [${queryList}]`];
@@ -219,13 +239,19 @@ function buildNexarQuery(mpns, settings) {
               name
             }
             offers {
+              id
+              sku
               clickUrl
               inventoryLevel
               factoryLeadDays
+              moq
+              packaging
               prices {
                 quantity
                 price
                 currency
+                convertedPrice
+                convertedCurrency
               }
             }
           }
@@ -409,6 +435,7 @@ async function fetchNexarParts(mpns, settings) {
 
   for (let index = 0; index < mpns.length; index += chunkSize) {
     const chunk = mpns.slice(index, index + chunkSize);
+    const chunkKinds = chunk.map(searchKindForPartNumber);
     const response = await fetch(NEXAR_GRAPHQL_URL, {
       method: "POST",
       headers: {
@@ -435,6 +462,7 @@ async function fetchNexarParts(mpns, settings) {
     batch.forEach((match, offset) => {
       matches.push({
         requestedMpn: match.reference || chunk[offset],
+        searchKind: chunkKinds[offset],
         hits: match.hits || 0,
         parts: match.parts || [],
       });
@@ -442,86 +470,6 @@ async function fetchNexarParts(mpns, settings) {
   }
 
   return matches;
-}
-
-function hashString(value) {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-  }
-  return Math.abs(hash >>> 0);
-}
-
-function buildDemoMatches(mpns, settings) {
-  const sellers = [
-    "Digi-Key",
-    "Mouser",
-    "Arrow Electronics",
-    "Avnet",
-    "Newark",
-    "TME",
-  ];
-
-  const allowed = settings.allowedSuppliers?.length
-    ? sellers.filter((seller) =>
-        settings.allowedSuppliers.some(
-          (allowedSeller) => allowedSeller.toLowerCase() === seller.toLowerCase(),
-        ),
-      )
-    : sellers;
-
-  return mpns.map((mpn) => {
-    const hash = hashString(mpn);
-    const basePrice = 0.04 + (hash % 5000) / 1000;
-    const selectedSellers = (allowed.length ? allowed : sellers).slice(0, 4);
-
-    return {
-      requestedMpn: mpn,
-      hits: 1,
-      parts: [
-        {
-          id: `demo-${hash}`,
-          mpn,
-          name: `${mpn} demo match`,
-          totalAvail: 1000 + (hash % 25000),
-          octopartUrl: `https://octopart.com/search?q=${encodeURIComponent(mpn)}`,
-          estimatedFactoryLeadDays: 21 + (hash % 42),
-          manufacturer: {
-            name: ["Texas Instruments", "Analog Devices", "Murata", "TE Connectivity"][
-              hash % 4
-            ],
-          },
-          similarParts: [
-            {
-              id: `similar-${hash}-a`,
-              mpn: `${mpn}-ALT`,
-              manufacturer: { name: "Demo Alternative" },
-            },
-          ],
-          sellers: selectedSellers.map((seller, sellerIndex) => {
-            const sellerPrice = basePrice * (1 + sellerIndex * 0.11);
-            const inventoryLevel = 250 + ((hash + sellerIndex * 173) % 9000);
-            return {
-              company: { name: seller },
-              offers: [
-                {
-                  clickUrl: `https://octopart.com/search?q=${encodeURIComponent(mpn)}+${encodeURIComponent(seller)}`,
-                  inventoryLevel,
-                  factoryLeadDays: 7 + ((hash + sellerIndex * 19) % 45),
-                  prices: [1, 10, 100, 1000, 5000].map((quantity, breakIndex) => ({
-                    quantity,
-                    price: Number((sellerPrice * Math.pow(0.9, breakIndex)).toFixed(4)),
-                    currency: settings.currency || "USD",
-                  })),
-                },
-              ],
-            };
-          }),
-        },
-      ],
-    };
-  });
 }
 
 function normalizeInventory(value) {
@@ -532,12 +480,19 @@ function normalizeInventory(value) {
 
 function choosePriceBreak(prices, requiredQty) {
   const cleanPrices = (prices || [])
-    .map((price) => ({
-      quantity: Math.max(1, numberFrom(price.quantity, 1)),
-      price: numberFrom(price.price, NaN),
-      currency: price.currency || "",
-    }))
-    .filter((price) => Number.isFinite(price.price) && price.price >= 0)
+    .map((price) => {
+      const convertedPrice = optionalNumber(price.convertedPrice);
+      const nativePrice = optionalNumber(price.price);
+      return {
+        quantity: Math.max(1, numberFrom(price.quantity, 1)),
+        price: convertedPrice ?? nativePrice,
+        currency:
+          convertedPrice !== null
+            ? price.convertedCurrency || price.currency || ""
+            : price.currency || "",
+      };
+    })
+    .filter((price) => price.price !== null && price.price >= 0)
     .sort((a, b) => a.quantity - b.quantity);
 
   if (!cleanPrices.length) return null;
@@ -552,6 +507,7 @@ function evaluateBom(lines, matches, settings, source) {
     const key = normalizeMpn(match.requestedMpn);
     partsByMpn.set(key, {
       hits: match.hits || 0,
+      searchKind: match.searchKind || "mpn",
       parts: match.parts || [],
     });
   }
@@ -578,9 +534,17 @@ function evaluateBom(lines, matches, settings, source) {
     for (const candidateMpn of candidateMpns) {
       const match = partsByMpn.get(normalizeMpn(candidateMpn));
       if (!match) continue;
-      matchedPartsCount += match.parts.length;
 
       for (const part of match.parts) {
+        if (
+          match.searchKind === "mpn" &&
+          normalizeMpn(part.mpn) !== normalizeMpn(candidateMpn)
+        ) {
+          continue;
+        }
+
+        matchedPartsCount += 1;
+
         for (const similarPart of part.similarParts || []) {
           similarParts.push({
             mpn: similarPart.mpn,
@@ -600,10 +564,14 @@ function evaluateBom(lines, matches, settings, source) {
           }
 
           for (const offer of seller.offers || []) {
-            const priceBreak = choosePriceBreak(offer.prices, Math.max(requiredQty, 1));
+            const minimumOrderQty = Math.max(1, numberFrom(offer.moq, 1));
+            const priceBreak = choosePriceBreak(
+              offer.prices,
+              Math.max(requiredQty, minimumOrderQty, 1),
+            );
             if (!priceBreak) continue;
 
-            const quotedQty = Math.max(requiredQty, priceBreak.quantity);
+            const quotedQty = Math.max(requiredQty, minimumOrderQty, priceBreak.quantity);
             const inventoryLevel = normalizeInventory(offer.inventoryLevel);
             const stockStatus =
               inventoryLevel === null
@@ -617,6 +585,7 @@ function evaluateBom(lines, matches, settings, source) {
               inputMpn: candidateMpn,
               quotedMpn: part.mpn || candidateMpn,
               manufacturer: part.manufacturer?.name || "",
+              supplierSku: offer.sku || "",
               supplier,
               sourceRole:
                 normalizeMpn(candidateMpn) === normalizeMpn(line.mpn)
@@ -625,6 +594,8 @@ function evaluateBom(lines, matches, settings, source) {
               unitPrice: priceBreak.price,
               currency: priceBreak.currency || settings.currency || "USD",
               priceBreakQty: priceBreak.quantity,
+              minimumOrderQty,
+              packaging: offer.packaging || "",
               quotedQty,
               totalCost,
               inventoryLevel,
@@ -641,9 +612,10 @@ function evaluateBom(lines, matches, settings, source) {
     offers.sort((a, b) => {
       const stockRank = { sufficient: 0, unknown: 1, short: 2 };
       return (
+        stockRank[a.stockStatus] - stockRank[b.stockStatus] ||
         a.totalCost - b.totalCost ||
         a.unitPrice - b.unitPrice ||
-        stockRank[a.stockStatus] - stockRank[b.stockStatus]
+        a.supplier.localeCompare(b.supplier)
       );
     });
 
@@ -669,7 +641,6 @@ function evaluateBom(lines, matches, settings, source) {
       ziplinePn: line.ziplinePn || "",
       lineNumber: line.lineNumber || String(index + 1),
       description: line.description || "",
-      requestedManufacturer: line.manufacturer || "",
       primaryMpn: line.mpn || "",
       candidateMpns,
       partType: line.partType || "",
@@ -724,7 +695,7 @@ function sanitizeSettings(rawSettings = {}) {
     country: String(rawSettings.country || "US").trim().toUpperCase().slice(0, 2),
     currency: String(rawSettings.currency || "USD").trim().toUpperCase().slice(0, 3),
     authorizedOnly: rawSettings.authorizedOnly !== false,
-    matchLimit: Math.min(5, Math.max(1, numberFrom(rawSettings.matchLimit, 3))),
+    matchLimit: Math.min(5, Math.max(1, numberFrom(rawSettings.matchLimit, 1))),
     allowedSuppliers: uniqueStrings(
       Array.isArray(rawSettings.allowedSuppliers)
         ? rawSettings.allowedSuppliers
@@ -742,7 +713,6 @@ function sanitizeLines(rawLines) {
     ziplinePn: String(line.ziplinePn || "").trim(),
     lineNumber: String(line.lineNumber || index + 1),
     description: String(line.description || "").trim(),
-    manufacturer: String(line.manufacturer || "").trim(),
     mpn: String(line.mpn || "").trim(),
     alternatives: uniqueStrings(
       Array.isArray(line.alternatives)
@@ -789,14 +759,16 @@ async function handleQuote(req, res) {
       lines.flatMap((line) => [line.mpn, ...(line.alternatives || [])]),
     );
 
-    const source = hasNexarCredentials() ? "nexar" : "demo";
-    const matches = mpns.length
-      ? hasNexarCredentials()
-        ? await fetchNexarParts(mpns, settings)
-        : buildDemoMatches(mpns, settings)
-      : [];
+    if (!hasNexarCredentials()) {
+      return sendJson(res, 503, {
+        error:
+          "Nexar credentials are not configured. Add NEXAR_CLIENT_ID and NEXAR_CLIENT_SECRET before generating supplier recommendations.",
+      });
+    }
 
-    return sendJson(res, 200, evaluateBom(lines, matches, settings, source));
+    const matches = mpns.length ? await fetchNexarParts(mpns, settings) : [];
+
+    return sendJson(res, 200, evaluateBom(lines, matches, settings, "nexar"));
   } catch (error) {
     return sendJson(res, 500, {
       error: error.message || "Unable to generate the quote report.",
@@ -827,7 +799,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url?.startsWith("/api/health")) {
     return sendJson(res, 200, {
       ok: true,
-      apiSource: hasNexarCredentials() ? "nexar" : "demo",
+      apiSource: hasNexarCredentials() ? "nexar" : "unconfigured",
       nexarConfigured: hasNexarCredentials(),
     });
   }
@@ -856,6 +828,6 @@ server.listen(port, host, () => {
   console.log(
     hasNexarCredentials()
       ? "Using Nexar/Octopart API credentials from the environment."
-      : "No Nexar credentials found. Demo quote data is enabled.",
+      : "No Nexar credentials found. Supplier recommendations are disabled.",
   );
 });

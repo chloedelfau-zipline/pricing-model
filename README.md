@@ -6,7 +6,7 @@ A local web app for turning a CSV, TSV, XLSX, or XLSM bill of materials into a s
 required quantity = BOM quantity per build x demand x (1 + buffer %)
 ```
 
-The app uses the official Nexar/Octopart GraphQL API when `NEXAR_CLIENT_ID` and `NEXAR_CLIENT_SECRET` are set. Without credentials, it runs in deterministic demo mode so the workflow can still be tested.
+The app uses the official Nexar/Octopart GraphQL API when `NEXAR_CLIENT_ID` and `NEXAR_CLIENT_SECRET` are set. Supplier recommendations are disabled when live Nexar data is unavailable, so the report does not show generated or placeholder pricing.
 
 ## Run
 
@@ -41,7 +41,6 @@ The importer recognizes common names for these columns:
 | Zipline PN | `ID`, `Item ID`, `Item Number`, `Zipline PN`, `ZL PN` |
 | Line | `Line`, `Item`, `Reference` |
 | Description | `Description`, `Desc`, `Comment`, `Value`, `Revision Name` |
-| Manufacturer | `Manufacturer`, `Mfr`, `Make`, `Manufacturer Name` |
 | MPN | `MPN`, `Manufacturer Part Number`, `Mfr Part Number`, `Part Number` |
 | Alternatives | `Alternatives`, `Alternate MPN`, `Approved Alternatives`, `Substitutes` |
 | Qty | `Qty`, `Quantity`, `BOM Qty`, `Qty Per Assembly` |
@@ -49,13 +48,15 @@ The importer recognizes common names for these columns:
 | Procurement Intent | `Procurement Intent`, `Procurement`, `Sourcing Intent`, `Buy/Build`, `Make/Buy` |
 Alternatives should be separated with semicolons or pipes. Build demand is entered in the app and applied to every BOM line.
 The BOM table can be filtered by MPN, part type, and procurement intent before generating a report.
+Manufacturer columns in Teamcenter exports are ignored. The report only shows manufacturer data returned by Nexar for the matched component.
 
 ## Recommendation Logic
 
-For each BOM line, the app searches the primary MPN plus any approved alternatives. It evaluates seller offers by:
+For each BOM line, the app searches the primary MPN plus any approved alternatives. Digi-Key supplier SKUs ending in `-ND` are searched as SKUs, which lets Nexar resolve the underlying manufacturer part before comparing sellers. It evaluates seller offers by:
 
 1. Matching the best price break for the required quantity.
-2. Prioritizing sufficient inventory, then unknown inventory, then short inventory.
-3. Selecting the lowest extended cost.
+2. Comparing authorized seller offers unless the Authorized sellers checkbox is turned off.
+3. Prioritizing offers with enough inventory for the required quantity.
+4. Selecting the lowest extended cost after MOQ and price-break quantity are applied.
 
-The report includes recommended supplier, next-best supplier comparison, quoted MPN, unit price, extended cost, seller stock, market availability, lead time, status, and offer link.
+The report includes recommended supplier, next-best supplier comparison, quoted MPN, matched manufacturer, seller SKU, unit price, extended cost, seller stock, market availability, lead time, status, and offer link.
