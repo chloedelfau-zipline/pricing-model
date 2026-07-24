@@ -58,4 +58,4 @@ For each BOM line, the app searches the primary MPN plus any approved alternativ
 2. Prioritizing sufficient inventory, then unknown inventory, then short inventory.
 3. Selecting the lowest extended cost.
 
-The report includes recommended supplier, quoted MPN, unit price, extended cost, seller stock, market availability, lead time, status, and offer link.
+The report includes recommended supplier, next-best supplier comparison, quoted MPN, unit price, extended cost, seller stock, market availability, lead time, status, and offer link.

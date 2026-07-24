@@ -38,28 +38,8 @@
           </div>
         </section>
 
-        <section>
-          <h2>Filters</h2>
-          <label>
-            MPN
-            <input id="mpnFilter" autocomplete="off" />
-          </label>
-          <label>
-            Part type
-            <select id="partTypeFilter">
-              <option value="">All part types</option>
-            </select>
-          </label>
-          <label>
-            Procurement intent
-            <select id="procurementFilter">
-              <option value="">All procurement intents</option>
-            </select>
-          </label>
-          <button id="clearFiltersButton" type="button" class="secondary">
-            Clear Filters
-          </button>
-        </section>
+        <button id="quoteButton" type="button" class="primary-button">Generate Report</button>
+        <p id="statusText" class="status-text" aria-live="polite"></p>
 
         <section>
           <h2>Demand</h2>
@@ -102,17 +82,79 @@
           </label>
         </section>
 
-        <button id="quoteButton" type="button" class="primary-button">Generate Report</button>
-        <p id="statusText" class="status-text" aria-live="polite"></p>
+        <section>
+          <h2>Filters</h2>
+          <label>
+            MPN
+            <input id="mpnFilter" autocomplete="off" />
+          </label>
+          <label>
+            Part type
+            <select id="partTypeFilter">
+              <option value="">All part types</option>
+            </select>
+          </label>
+          <label>
+            Procurement intent
+            <select id="procurementFilter">
+              <option value="">All procurement intents</option>
+            </select>
+          </label>
+          <button id="clearFiltersButton" type="button" class="secondary">
+            Clear Filters
+          </button>
+        </section>
       </aside>
 
       <section class="workspace">
-        <section class="panel">
-          <div class="section-title">
-            <h2>BOM Lines</h2>
-            <span id="lineCount">0 lines</span>
+        <section class="summary-grid" id="summaryGrid">
+          <div class="metric">
+            <span>Quoted Lines</span>
+            <strong id="quotedMetric">0</strong>
           </div>
-          <div class="table-wrap">
+          <div class="metric">
+            <span>Open Lines</span>
+            <strong id="openMetric">0</strong>
+          </div>
+          <div class="metric">
+            <span>Stock Risks</span>
+            <strong id="riskMetric">0</strong>
+          </div>
+          <div class="metric">
+            <span>Extended Cost</span>
+            <strong id="costMetric">$0</strong>
+          </div>
+        </section>
+
+        <section class="panel view-panel">
+          <div class="section-title">
+            <div class="view-toggle" aria-label="Workspace view" role="tablist">
+              <button
+                class="view-tab is-active"
+                id="bomViewButton"
+                type="button"
+                role="tab"
+                aria-selected="true"
+              >
+                BOM Lines
+              </button>
+              <button
+                class="view-tab"
+                id="reportViewButton"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                disabled
+              >
+                Report
+              </button>
+            </div>
+            <div class="view-meta">
+              <span id="lineCount">0 lines</span>
+              <span id="reportMeta" hidden></span>
+            </div>
+          </div>
+          <div class="table-wrap" id="bomView">
             <table class="data-table" id="bomTable">
               <thead>
                 <tr>
@@ -134,33 +176,8 @@
               </tbody>
             </table>
           </div>
-        </section>
 
-        <section class="summary-grid" id="summaryGrid" hidden>
-          <div class="metric">
-            <span>Quoted Lines</span>
-            <strong id="quotedMetric">0</strong>
-          </div>
-          <div class="metric">
-            <span>Open Lines</span>
-            <strong id="openMetric">0</strong>
-          </div>
-          <div class="metric">
-            <span>Stock Risks</span>
-            <strong id="riskMetric">0</strong>
-          </div>
-          <div class="metric">
-            <span>Extended Cost</span>
-            <strong id="costMetric">$0</strong>
-          </div>
-        </section>
-
-        <section class="panel" id="reportPanel" hidden>
-          <div class="section-title">
-            <h2>Supplier Recommendation</h2>
-            <span id="reportMeta"></span>
-          </div>
-          <div class="table-wrap">
+          <div class="table-wrap" id="reportView" hidden>
             <table class="data-table report-table">
               <thead>
                 <tr>

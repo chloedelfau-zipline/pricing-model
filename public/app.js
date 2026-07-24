@@ -1,6 +1,7 @@
 const state = {
   lines: [],
   report: null,
+  activeView: "bom",
 };
 
 const isFilePreview = window.location.protocol === "file:";
@@ -33,7 +34,10 @@ const elements = {
   openMetric: document.querySelector("#openMetric"),
   riskMetric: document.querySelector("#riskMetric"),
   costMetric: document.querySelector("#costMetric"),
-  reportPanel: document.querySelector("#reportPanel"),
+  bomView: document.querySelector("#bomView"),
+  reportPanel: document.querySelector("#reportView"),
+  bomViewButton: document.querySelector("#bomViewButton"),
+  reportViewButton: document.querySelector("#reportViewButton"),
   reportMeta: document.querySelector("#reportMeta"),
   reportBody: document.querySelector("#reportBody"),
 };
@@ -659,14 +663,43 @@ function getSettings() {
   };
 }
 
+function renderSummary(summary = null) {
+  const currency = summary?.currency || elements.currency.value || "USD";
+  elements.quotedMetric.textContent = summary
+    ? `${summary.quotedLines}/${summary.lineCount}`
+    : "0";
+  elements.openMetric.textContent = formatNumber(summary?.unresolvedLines || 0);
+  elements.riskMetric.textContent = formatNumber(summary?.stockRisks || 0);
+  elements.costMetric.textContent = formatCurrency(summary?.totalCost || 0, currency);
+}
+
+function showView(view) {
+  const nextView = view === "report" && state.report ? "report" : "bom";
+  const isReport = nextView === "report";
+  state.activeView = nextView;
+
+  elements.bomView.hidden = isReport;
+  elements.reportPanel.hidden = !isReport;
+  elements.bomViewButton.classList.toggle("is-active", !isReport);
+  elements.reportViewButton.classList.toggle("is-active", isReport);
+  elements.bomViewButton.setAttribute("aria-selected", String(!isReport));
+  elements.reportViewButton.setAttribute("aria-selected", String(isReport));
+  elements.lineCount.hidden = isReport;
+  elements.reportMeta.hidden = !isReport || !state.report;
+}
+
 function resetReportView() {
   state.report = null;
   elements.exportButton.disabled = true;
-  elements.summaryGrid.hidden = true;
-  elements.reportPanel.hidden = true;
+  elements.reportViewButton.disabled = true;
+  elements.reportBody.innerHTML = "";
+  elements.reportMeta.textContent = "";
+  renderSummary();
+  showView("bom");
 }
 
 function addEmptyLine() {
+  resetReportView();
   state.lines.push({
     id: makeId(),
     ziplinePn: "",
@@ -693,6 +726,7 @@ function updateLine(id, field, value) {
 }
 
 function removeLine(id) {
+  resetReportView();
   state.lines = state.lines.filter((line) => line.id !== id);
   renderBom();
 }
@@ -790,17 +824,10 @@ function stockBadgeClass(status) {
 
 function renderReport(report) {
   state.report = report;
-  elements.summaryGrid.hidden = false;
-  elements.reportPanel.hidden = false;
   elements.exportButton.disabled = false;
+  elements.reportViewButton.disabled = false;
 
-  elements.quotedMetric.textContent = `${report.summary.quotedLines}/${report.summary.lineCount}`;
-  elements.openMetric.textContent = formatNumber(report.summary.unresolvedLines);
-  elements.riskMetric.textContent = formatNumber(report.summary.stockRisks);
-  elements.costMetric.textContent = formatCurrency(
-    report.summary.totalCost,
-    report.summary.currency,
-  );
+  renderSummary(report.summary);
 
   elements.reportMeta.textContent =
     report.source === "nexar" ? "Nexar/Octopart live data" : "Demo data";
@@ -808,6 +835,7 @@ function renderReport(report) {
   elements.reportBody.innerHTML = report.lines
     .map((line) => {
       const rec = line.recommendation;
+      const runner = line.runnerUp;
       const unit = rec
         ? `${formatCurrency(rec.unitPrice, rec.currency, 4)} @ ${formatNumber(
             rec.priceBreakQty,
@@ -823,6 +851,18 @@ function renderReport(report) {
           : formatNumber(rec.marketAvailability);
       const lead = rec?.leadDays ? `${rec.leadDays} days` : "";
       const total = rec ? formatCurrency(rec.totalCost, rec.currency) : "";
+      const runnerDelta =
+        rec && runner ? Number(runner.totalCost || 0) - Number(rec.totalCost || 0) : 0;
+      const runnerText =
+        runner && rec
+          ? `Next: ${runner.supplier} ${formatCurrency(
+              runner.totalCost,
+              runner.currency || rec.currency || report.summary.currency,
+            )} (${runnerDelta >= 0 ? "+" : ""}${formatCurrency(
+              runnerDelta,
+              runner.currency || rec.currency || report.summary.currency,
+            )})`
+          : "";
       const partSubtext = [
         line.description,
         line.requestedManufacturer,
@@ -849,7 +889,12 @@ function renderReport(report) {
               <span class="subtle">${escapeHtml(partSubtext)}</span>
             </div>
           </td>
-          <td>${escapeHtml(rec?.supplier || "")}</td>
+          <td>
+            <div class="supplier-cell">
+              <strong>${escapeHtml(rec?.supplier || "")}</strong>
+              ${runnerText ? `<span class="subtle">${escapeHtml(runnerText)}</span>` : ""}
+            </div>
+          </td>
           <td>${escapeHtml(unit)}</td>
           <td>${escapeHtml(total)}</td>
           <td>
@@ -875,6 +920,8 @@ function renderReport(report) {
       `;
     })
     .join("");
+
+  showView("report");
 }
 
 function quoteCsv(report) {
@@ -891,6 +938,9 @@ function quoteCsv(report) {
       "Required Qty",
       "Recommended MPN",
       "Supplier",
+      "Next Best Supplier",
+      "Next Best Total",
+      "Next Best Delta",
       "Unit Price",
       "Currency",
       "Price Break",
@@ -903,6 +953,12 @@ function quoteCsv(report) {
     ],
     ...report.lines.map((line) => {
       const rec = line.recommendation || {};
+      const runner = line.runnerUp || {};
+      const runnerDelta =
+        line.recommendation && line.runnerUp
+          ? Number(line.runnerUp.totalCost || 0) -
+            Number(line.recommendation.totalCost || 0)
+          : "";
       return [
         line.lineNumber,
         line.ziplinePn,
@@ -915,6 +971,9 @@ function quoteCsv(report) {
         line.requiredQty,
         rec.quotedMpn || "",
         rec.supplier || "",
+        runner.supplier || "",
+        runner.totalCost ?? "",
+        runnerDelta,
         rec.unitPrice ?? "",
         rec.currency || report.summary.currency,
         rec.priceBreakQty ?? "",
@@ -1116,6 +1175,12 @@ elements.bomBody.addEventListener("click", (event) => {
 });
 
 elements.addLineButton.addEventListener("click", addEmptyLine);
+elements.bomViewButton.addEventListener("click", () => {
+  showView("bom");
+});
+elements.reportViewButton.addEventListener("click", () => {
+  showView("report");
+});
 elements.mpnFilter.addEventListener("input", () => {
   resetReportView();
   renderBom();
@@ -1133,8 +1198,24 @@ elements.clearFiltersButton.addEventListener("click", () => {
   resetReportView();
   renderBom();
 });
-elements.defaultDemand.addEventListener("input", refreshComputedQuantities);
-elements.bufferPct.addEventListener("input", refreshComputedQuantities);
+elements.defaultDemand.addEventListener("input", () => {
+  resetReportView();
+  refreshComputedQuantities();
+});
+elements.bufferPct.addEventListener("input", () => {
+  resetReportView();
+  refreshComputedQuantities();
+});
+[
+  elements.country,
+  elements.currency,
+  elements.supplierFilter,
+  elements.authorizedOnly,
+  elements.matchLimit,
+].forEach((input) => {
+  input.addEventListener("input", resetReportView);
+  input.addEventListener("change", resetReportView);
+});
 elements.clearButton.addEventListener("click", () => {
   state.lines = [];
   clearFilterInputs();
@@ -1156,5 +1237,6 @@ elements.exportButton.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
+resetReportView();
 renderBom();
 checkHealth();
