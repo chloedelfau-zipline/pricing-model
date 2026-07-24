@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BOM Supplier Optimizer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="ZL.png" alt="" aria-hidden="true" />
+        <div>
+          <h1>BOM Supplier Optimizer</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="text-button" id="exportButton" type="button" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+          </svg>
+          Export Report
+        </button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <aside class="sidebar controls-panel">
+        <section>
+          <h2>BOM</h2>
+          <label class="file-drop" id="dropZone" for="fileInput">
+            <input id="fileInput" type="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm" />
+            <span id="fileLabel">Upload BOM</span>
+          </label>
+          <div class="button-row">
+            <button id="addLineButton" type="button" class="text-button">Add Line</button>
+            <button id="clearButton" type="button" class="secondary">Clear</button>
+          </div>
+        </section>
+
+        <section>
+          <h2>Filters</h2>
+          <label>
+            MPN
+            <input id="mpnFilter" autocomplete="off" />
+          </label>
+          <label>
+            Part type
+            <select id="partTypeFilter">
+              <option value="">All part types</option>
+            </select>
+          </label>
+          <label>
+            Procurement intent
+            <select id="procurementFilter">
+              <option value="">All procurement intents</option>
+            </select>
+          </label>
+          <button id="clearFiltersButton" type="button" class="secondary">
+            Clear Filters
+          </button>
+        </section>
+
+        <section>
+          <h2>Demand</h2>
+          <label>
+            Build demand
+            <input id="defaultDemand" type="number" min="0" step="1" value="1000" />
+          </label>
+          <label>
+            Buffer %
+            <input id="bufferPct" type="number" min="0" step="0.1" value="10" />
+          </label>
+        </section>
+
+        <section>
+          <h2>Market</h2>
+          <div class="split">
+            <label>
+              Country
+              <input id="country" maxlength="2" value="US" />
+            </label>
+            <label>
+              Currency
+              <input id="currency" maxlength="3" value="USD" />
+            </label>
+          </div>
+          <label>
+            Supplier filter
+            <input
+              id="supplierFilter"
+              autocomplete="off"
+            />
+          </label>
+          <label class="check-row">
+            <input id="authorizedOnly" type="checkbox" checked />
+            Authorized sellers
+          </label>
+          <label>
+            Matches per MPN
+            <input id="matchLimit" type="number" min="1" max="5" step="1" value="3" />
+          </label>
+        </section>
+
+        <button id="quoteButton" type="button" class="primary-button">Generate Report</button>
+        <p id="statusText" class="status-text" aria-live="polite"></p>
+      </aside>
+
+      <section class="workspace">
+        <section class="panel">
+          <div class="section-title">
+            <h2>BOM Lines</h2>
+            <span id="lineCount">0 lines</span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="bomTable">
+              <thead>
+                <tr>
+                  <th>Zipline PN</th>
+                  <th>Description</th>
+                  <th>Manufacturer</th>
+                  <th>MPN</th>
+                  <th>Qty</th>
+                  <th>Part Type</th>
+                  <th>Procurement</th>
+                  <th>Required Qty</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="bomBody">
+                <tr class="empty-row">
+                  <td colspan="9">No BOM lines.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="summary-grid" id="summaryGrid" hidden>
+          <div class="metric">
+            <span>Quoted Lines</span>
+            <strong id="quotedMetric">0</strong>
+          </div>
+          <div class="metric">
+            <span>Open Lines</span>
+            <strong id="openMetric">0</strong>
+          </div>
+          <div class="metric">
+            <span>Stock Risks</span>
+            <strong id="riskMetric">0</strong>
+          </div>
+          <div class="metric">
+            <span>Extended Cost</span>
+            <strong id="costMetric">$0</strong>
+          </div>
+        </section>
+
+        <section class="panel" id="reportPanel" hidden>
+          <div class="section-title">
+            <h2>Supplier Recommendation</h2>
+            <span id="reportMeta"></span>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table report-table">
+              <thead>
+                <tr>
+                  <th>Zipline PN</th>
+                  <th>Required</th>
+                  <th>Part</th>
+                  <th>Supplier</th>
+                  <th>Unit</th>
+                  <th>Total</th>
+                  <th>Stock</th>
+                  <th>Lead</th>
+                  <th>Status</th>
+                  <th>Link</th>
+                </tr>
+              </thead>
+              <tbody id="reportBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
